@@ -3,7 +3,7 @@ module.exports = function (api) {
   return {
     presets: ['babel-preset-expo'],
     plugins: [
-      'expo-router/babel',
+      // Keep your alias here
       ['module-resolver', { alias: { '@': '.' } }],
     ],
   };
