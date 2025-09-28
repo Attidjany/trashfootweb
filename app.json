@@ -1,0 +1,7 @@
+{
+  "name": "trashfoot-web",
+  "slug": "trashfoot-web",
+  "plugins": [
+    "expo-router"
+  ]
+}
