@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -14,31 +15,41 @@ import { User, Users, Plus, LogOut, Settings, ChevronRight, Search } from 'lucid
 import { useGameStore } from '@/hooks/use-game-store';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AchievementBadges } from '@/components/AchievementBadges';
+import { useAuth } from '@/hooks/use-auth';
+import { joinGroupByCode, createGroup as createGroupRPC } from '@/lib/groups';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { 
-    currentUser, 
-    groups, 
-    activeGroupId, 
+
+  const {
+    currentUser,
+    groups,
+    activeGroupId,
     setActiveGroupId,
-    createGroup,
-    joinGroup,
+    // createGroup, // not needed anymore (we use Supabase RPC)
     logout,
   } = useGameStore();
+
+  const { userId, signInWithEmail } = useAuth();
+
   const [createGroupModal, setCreateGroupModal] = useState(false);
   const [joinGroupModal, setJoinGroupModal] = useState(false);
+
   const [groupName, setGroupName] = useState('');
   const [groupDescription, setGroupDescription] = useState('');
   const [groupCode, setGroupCode] = useState('');
+
+  const [email, setEmail] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   if (!currentUser) {
     return (
       <View style={[styles.emptyContainer, { paddingTop: insets.top }]}>
         <User size={64} color="#64748B" />
         <Text style={styles.emptyTitle}>Not Logged In</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.primaryButton}
           onPress={() => router.replace('/onboarding')}
         >
@@ -48,35 +59,80 @@ export default function ProfileScreen() {
     );
   }
 
-  const handleCreateGroup = () => {
+  // --- Supabase-backed CREATE GROUP ---
+  const handleCreateGroup = async () => {
     if (!groupName.trim()) {
-      console.log('Error: Please enter a group name');
+      Alert.alert('Create group', 'Please enter a group name.');
       return;
     }
-    
-    createGroup(groupName.trim(), groupDescription.trim());
-    setCreateGroupModal(false);
-    setGroupName('');
-    setGroupDescription('');
+
+    try {
+      setCreating(true);
+
+      // Require auth first
+      if (!userId) {
+        if (!email.trim()) {
+          Alert.alert('Sign in', 'Enter your email to sign in, then press Create again.');
+          return;
+        }
+        await signInWithEmail(email.trim());
+        Alert.alert('Check your email', 'We sent you a sign-in link. Open it, then press Create again.');
+        return;
+      }
+
+      const group = await createGroupRPC(groupName.trim());
+      // Show join code
+      Alert.alert('Group created', `Invite code: ${group.code}`);
+
+      setCreateGroupModal(false);
+      setGroupName('');
+      setGroupDescription('');
+      // Optional: navigate after create
+      // router.replace(`/group-details?groupId=${group.id}`);
+    } catch (e: any) {
+      Alert.alert('Create group failed', e.message ?? 'Unknown error');
+    } finally {
+      setCreating(false);
+    }
   };
 
-  const handleJoinGroup = () => {
+  // --- Supabase-backed JOIN GROUP ---
+  const handleJoinGroup = async () => {
     if (!groupCode.trim()) {
-      console.log('Error: Please enter a group code');
+      Alert.alert('Join group', 'Please enter a group code.');
       return;
     }
-    
-    const result = joinGroup(groupCode.trim().toUpperCase());
-    if (result) {
-      setJoinGroupModal(false);
-      setGroupCode('');
-      console.log('Successfully joined group:', result.name);
-    } else {
-      console.log('Error: Invalid group code');
+
+    try {
+      setJoining(true);
+
+      if (!userId) {
+        if (!email.trim()) {
+          Alert.alert('Sign in', 'Enter your email to sign in, then press Join again.');
+          return;
+        }
+        await signInWithEmail(email.trim());
+        Alert.alert('Check your email', 'We sent you a sign-in link. Open it, then press Join again.');
+        return;
+      }
+
+      const result = await joinGroupByCode(groupCode.trim().toUpperCase()); // [{ group_id, role }]
+      if (Array.isArray(result) && result.length > 0) {
+        Alert.alert('Joined', `Welcome! You’re now a ${result[0].role}.`);
+        setJoinGroupModal(false);
+        setGroupCode('');
+        router.replace('/(tabs)/home');
+      } else {
+        Alert.alert('Join group', 'Joined, but no details returned.');
+      }
+    } catch (e: any) {
+      Alert.alert('Join failed', e.message ?? 'Unknown error');
+    } finally {
+      setJoining(false);
     }
   };
 
-  const userGroups = groups.filter(g => g.members.some(m => m.id === currentUser.id));
+  const userGroups = groups.filter((g) => g.members.some((m) => m.id === currentUser.id));
 
   return (
     <ScrollView style={[styles.container, { paddingTop: insets.top }]}>
@@ -91,7 +147,7 @@ export default function ProfileScreen() {
           <User size={48} color="#fff" />
         </View>
         <Text style={styles.userName}>{currentUser.name}</Text>
-        <AchievementBadges 
+        <AchievementBadges
           leaguesWon={currentUser.stats.leaguesWon}
           knockoutsWon={currentUser.stats.knockoutsWon}
           size="large"
@@ -120,9 +176,7 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.statItem}>
             <Text style={styles.statValue}>
-              {currentUser.stats.played > 0 
-                ? Math.round(currentUser.stats.winRate) 
-                : 0}%
+              {currentUser.stats.played > 0 ? Math.round(currentUser.stats.winRate) : 0}%
             </Text>
             <Text style={styles.statLabel}>Win Rate</Text>
           </View>
@@ -173,7 +227,7 @@ export default function ProfileScreen() {
             </Text>
           </View>
         ) : (
-          userGroups.map(group => (
+          userGroups.map((group) => (
             <TouchableOpacity
               key={group.id}
               style={[
@@ -204,7 +258,7 @@ export default function ProfileScreen() {
 
       {/* Settings */}
       <View style={styles.section}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.settingsButton}
           onPress={() => router.push('/settings')}
         >
@@ -212,11 +266,10 @@ export default function ProfileScreen() {
           <Text style={styles.settingsText}>Settings</Text>
           <ChevronRight size={20} color="#64748B" />
         </TouchableOpacity>
-        
-        <TouchableOpacity 
+
+        <TouchableOpacity
           style={styles.logoutButton}
           onPress={async () => {
-            console.log('Logout requested');
             await logout();
             router.replace('/auth');
           }}
@@ -236,7 +289,18 @@ export default function ProfileScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Create New Group</Text>
-            
+
+            {!userId && (
+              <TextInput
+                style={styles.input}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="Enter your email to sign in"
+                placeholderTextColor="#64748B"
+                autoCapitalize="none"
+              />
+            )}
+
             <TextInput
               style={styles.input}
               value={groupName}
@@ -244,7 +308,7 @@ export default function ProfileScreen() {
               placeholder="Group Name"
               placeholderTextColor="#64748B"
             />
-            
+
             <TextInput
               style={[styles.input, styles.textArea]}
               value={groupDescription}
@@ -254,7 +318,7 @@ export default function ProfileScreen() {
               multiline
               numberOfLines={3}
             />
-            
+
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.cancelButton}
@@ -269,8 +333,11 @@ export default function ProfileScreen() {
               <TouchableOpacity
                 style={styles.submitButton}
                 onPress={handleCreateGroup}
+                disabled={creating}
               >
-                <Text style={styles.submitButtonText}>Create</Text>
+                <Text style={styles.submitButtonText}>
+                  {creating ? 'Creating...' : 'Create'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -287,7 +354,18 @@ export default function ProfileScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Join Group</Text>
-            
+
+            {!userId && (
+              <TextInput
+                style={styles.input}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="Enter your email"
+                placeholderTextColor="#64748B"
+                autoCapitalize="none"
+              />
+            )}
+
             <TextInput
               style={styles.input}
               value={groupCode}
@@ -297,13 +375,13 @@ export default function ProfileScreen() {
               autoCapitalize="characters"
               maxLength={8}
             />
-            
+
             <View style={styles.infoBox}>
               <Text style={styles.infoText}>
                 💡 Ask your group admin for the invite code. Example codes: TRASHLEGS, ROOKIES1
               </Text>
             </View>
-            
+
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.cancelButton}
@@ -317,8 +395,11 @@ export default function ProfileScreen() {
               <TouchableOpacity
                 style={styles.submitButton}
                 onPress={handleJoinGroup}
+                disabled={joining}
               >
-                <Text style={styles.submitButtonText}>Join</Text>
+                <Text style={styles.submitButtonText}>
+                  {joining ? 'Joining...' : 'Join'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -329,6 +410,7 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  // your original styles preserved
   container: {
     flex: 1,
     backgroundColor: '#0F172A',
@@ -543,7 +625,7 @@ const styles = StyleSheet.create({
   },
   textArea: {
     height: 80,
-    textAlignVertical: 'top',
+    textAlignVertical: 'top' as const,
   },
   modalActions: {
     flexDirection: 'row',
