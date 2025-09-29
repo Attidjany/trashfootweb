@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/hooks/use-auth';
@@ -18,10 +18,19 @@ export default function AuthScreen() {
 
   const [busy, setBusy] = useState(false);
 
-  if (userId) {
-    router.replace('/(tabs)/home');
-    return null;
-  }
+  // If already logged in, go to Profile tab.
+  useEffect(() => {
+    if (userId) {
+      // Router replace (soft) + hard fallback for web
+      router.replace('/profile');
+      // In case router caching delays on web, force navigation:
+      setTimeout(() => {
+        if (typeof window !== 'undefined') {
+          window.location.assign('/profile');
+        }
+      }, 50);
+    }
+  }, [userId, router]);
 
   const onSubmitSignIn = async () => {
     if (!identifier.trim() || !password) {
@@ -31,7 +40,7 @@ export default function AuthScreen() {
     try {
       setBusy(true);
       await signIn(identifier.trim(), password);
-      router.replace('/(tabs)/home');
+      // After sign-in succeeds, userId updates; the effect above redirects.
     } catch (e: any) {
       Alert.alert('Auth error', e.message ?? 'Failed to sign in');
     } finally {
@@ -129,13 +138,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F172A', padding: 24, justifyContent: 'center' },
   title: { color: '#fff', fontSize: 24, fontWeight: '700', marginBottom: 16 },
   input: {
-    backgroundColor: '#0b1220',
-    borderColor: '#1f2937',
-    borderWidth: 1,
-    color: '#fff',
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 12,
+    backgroundColor: '#0b1220', borderColor: '#1f2937', borderWidth: 1,
+    color: '#fff', padding: 14, borderRadius: 12, marginBottom: 12,
   },
   button: { backgroundColor: '#0EA5E9', paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 4 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
