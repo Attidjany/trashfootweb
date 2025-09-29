@@ -26,47 +26,43 @@ export function useAuth() {
     };
   }, []);
 
-  // Sign up with email + password, then set username on the profile
+  // Sign up with email+password, then set username into profiles
   const signUp = useCallback(async (email: string, password: string, username: string) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { error } = await supabase.auth.signUp({ email, password });
     if (error) throw error;
 
-    // if sign-up requires email confirmation, profile row may not exist yet until confirmed.
-    // We'll try to upsert the username; if the session isn't present yet, this will no-op.
-    const { data: sess } = await supabase.auth.getSession();
-    if (sess.session?.user?.id) {
-      await supabase
+    // If email confirmation is off or already confirmed, session is present; upsert username
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user?.id) {
+      const { error: upErr } = await supabase
         .from('profiles')
         .update({ username })
-        .eq('id', sess.session.user.id);
+        .eq('id', session.user.id);
+      if (upErr) throw upErr;
     }
     return true;
   }, []);
 
   // Sign in with email OR username + password
   const signIn = useCallback(async (identifier: string, password: string) => {
-  let id = identifier.trim();
+    let emailToUse = identifier.trim();
 
-  // If the input doesn't look like an email, try resolving as username
-  if (!id.includes('@')) {
-    const { data, error } = await supabase.rpc('get_email_for_username', { p_username: id.toLowerCase() });
-    if (error) throw error;
-    if (!data) {
-      // Fall back to trying it as email anyway, in case user typed an email without '@'
-      throw new Error('Username not found. Try your email instead.');
+    if (!emailToUse.includes('@')) {
+      const { data, error } = await supabase.rpc('get_email_for_username', {
+        p_username: emailToUse,
+      });
+      if (error) throw error;
+      if (!data) throw new Error('Username not found');
+      emailToUse = data as string;
     }
-    id = String(data);
-  }
 
-  const { error: signInError } = await supabase.auth.signInWithPassword({
-    email: id,
-    password,
-  });
-  if (signInError) throw signInError;
-
-  return true;
-}, []);
-
+    const { error } = await supabase.auth.signInWithPassword({
+      email: emailToUse,
+      password,
+    });
+    if (error) throw error;
+    return true;
+  }, []);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();

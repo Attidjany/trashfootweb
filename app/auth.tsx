@@ -8,10 +8,11 @@ export default function AuthScreen() {
   const { userId, signIn, signUp } = useAuth();
   const [mode, setMode] = useState<'signin'|'signup'>('signin');
 
-  // shared inputs
-  const [identifier, setIdentifier] = useState('');   // email OR username (for sign in)
+  // signin
+  const [identifier, setIdentifier] = useState(''); // email OR username
   const [password, setPassword] = useState('');
-  // signup-only inputs
+
+  // signup
   const [signupEmail, setSignupEmail] = useState('');
   const [signupUsername, setSignupUsername] = useState('');
 
@@ -24,7 +25,7 @@ export default function AuthScreen() {
 
   const onSubmitSignIn = async () => {
     if (!identifier.trim() || !password) {
-      Alert.alert('Sign in', 'Enter your email/username and password.');
+      Alert.alert('Sign in', 'Enter email/username and password.');
       return;
     }
     try {
@@ -49,7 +50,6 @@ export default function AuthScreen() {
       Alert.alert('Account created', 'You can sign in now.');
       setMode('signin');
       setIdentifier(signupEmail.trim());
-      // keep password as is so they can sign in right away
     } catch (e: any) {
       Alert.alert('Auth error', e.message ?? 'Failed to sign up');
     } finally {
@@ -62,7 +62,6 @@ export default function AuthScreen() {
       {mode === 'signin' ? (
         <>
           <Text style={styles.title}>Sign in</Text>
-
           <TextInput
             style={styles.input}
             value={identifier}
@@ -71,7 +70,6 @@ export default function AuthScreen() {
             placeholderTextColor="#94a3b8"
             autoCapitalize="none"
           />
-
           <TextInput
             style={styles.input}
             value={password}
@@ -80,11 +78,9 @@ export default function AuthScreen() {
             placeholderTextColor="#94a3b8"
             secureTextEntry
           />
-
           <TouchableOpacity style={styles.button} onPress={onSubmitSignIn} disabled={busy}>
             <Text style={styles.buttonText}>{busy ? 'Working…' : 'Sign in'}</Text>
           </TouchableOpacity>
-
           <TouchableOpacity onPress={() => setMode('signup')} style={styles.linkBtn}>
             <Text style={styles.linkText}>Don't have an account? Sign up</Text>
           </TouchableOpacity>
@@ -92,7 +88,6 @@ export default function AuthScreen() {
       ) : (
         <>
           <Text style={styles.title}>Create account</Text>
-
           <TextInput
             style={styles.input}
             value={signupEmail}
@@ -102,7 +97,6 @@ export default function AuthScreen() {
             autoCapitalize="none"
             keyboardType="email-address"
           />
-
           <TextInput
             style={styles.input}
             value={signupUsername}
@@ -111,7 +105,6 @@ export default function AuthScreen() {
             placeholderTextColor="#94a3b8"
             autoCapitalize="none"
           />
-
           <TextInput
             style={styles.input}
             value={password}
@@ -120,11 +113,9 @@ export default function AuthScreen() {
             placeholderTextColor="#94a3b8"
             secureTextEntry
           />
-
           <TouchableOpacity style={styles.button} onPress={onSubmitSignUp} disabled={busy}>
             <Text style={styles.buttonText}>{busy ? 'Working…' : 'Sign up'}</Text>
           </TouchableOpacity>
-
           <TouchableOpacity onPress={() => setMode('signin')} style={styles.linkBtn}>
             <Text style={styles.linkText}>Have an account? Sign in</Text>
           </TouchableOpacity>
