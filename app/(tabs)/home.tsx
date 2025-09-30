@@ -28,11 +28,6 @@ export default function HomeScreen() {
     setIsMounted(true);
   }, []);
 
-  useEffect(() => {
-    if (isMounted && !isLoading && !currentUser) {
-      router.replace('/onboarding');
-    }
-  }, [currentUser, isLoading, router, isMounted]);
 
   if (!isMounted || isLoading) {
     return (
