@@ -46,11 +46,9 @@ export default function GroupDetails() {
         const uid = sessionRes.session?.user?.id ?? null;
 
         // fetch group (must be member per RLS)
-        const { data: gRow, error: gErr } = await supabase
-          .from("groups")
-          .select("id, name, code, description, created_at, owner_id, updated_at")
-          .eq("id", groupId as string)
-          .maybeSingle();
+        const { data: gRow, error: gErr } = await supabase.rpc("get_group_by_id", {
+  p_group_id: groupId as string,
+});
         if (gErr) throw gErr;
         if (!gRow) {
           if (mounted) setGroup(null);
