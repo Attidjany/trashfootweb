@@ -1,63 +1,51 @@
-import { Tabs } from "expo-router";
-import { Home, Trophy, BarChart3, MessageCircle, User } from "lucide-react-native";
-import React from "react";
+// app/(tabs)/_layout.tsx
+import React from 'react';
+import { Tabs } from 'expo-router';
+import { useAuth } from '@/hooks/use-auth';
+import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { Home, Trophy, BarChart3, MessageCircle, User, ListChecks } from 'lucide-react-native';
 
+export default function TabsLayout() {
+  const { userId, loading } = useAuth();
 
-export default function TabLayout() {
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
   return (
     <Tabs
       screenOptions={{
+        headerShown: false,
         tabBarActiveTintColor: '#0EA5E9',
-        tabBarInactiveTintColor: '#64748B',
-        tabBarStyle: {
-          backgroundColor: '#0F172A',
-          borderTopColor: '#1E293B',
-          borderTopWidth: 1,
-        },
-        headerStyle: {
-          backgroundColor: '#0F172A',
-        },
-        headerTintColor: '#fff',
-        headerTitleStyle: {
-          fontWeight: '600' as const,
-        },
+        tabBarStyle: { backgroundColor: '#0F172A', borderTopColor: '#1E293B' },
       }}
     >
+      {/* Edit these to match your files in app/(tabs)/ */}
       <Tabs.Screen
-        name="home"
-        options={{
-          title: "Dashboard",
-          tabBarIcon: ({ color }) => <Home size={24} color={color} />,
-        }}
+        name="home"         // must match app/(tabs)/home.tsx
+        options={{ title: 'Dashboard', tabBarIcon: ({ color, size }) => <Home color={color} size={size} /> }}
       />
       <Tabs.Screen
-        name="matches"
-        options={{
-          title: "Matches",
-          tabBarIcon: ({ color }) => <Trophy size={24} color={color} />,
-        }}
+        name="matches"           // must match app/(tabs)/matches.tsx
+        options={{ title: 'Matches', tabBarIcon: ({ color, size }) => <ListChecks color={color} size={size} /> }}
       />
       <Tabs.Screen
-        name="stats"
-        options={{
-          title: "Stats",
-          tabBarIcon: ({ color }) => <BarChart3 size={24} color={color} />,
-        }}
+        name="stats"      // remove this line if you don’t have the file
+        options={{ title: 'Stats', tabBarIcon: ({ color, size }) => <Trophy color={color} size={size} /> }}
       />
       <Tabs.Screen
-        name="chat"
-        options={{
-          title: "Chat",
-          tabBarIcon: ({ color }) => <MessageCircle size={24} color={color} />,
-        }}
+        name="chat"              // must match app/(tabs)/chat.tsx
+        options={{ title: 'Chat', tabBarIcon: ({ color, size }) => <MessageCircle color={color} size={size} /> }}
       />
       <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          tabBarIcon: ({ color }) => <User size={24} color={color} />,
-        }}
+        name="profile"           // must match app/(tabs)/profile.tsx
+        options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <User color={color} size={size} /> }}
       />
     </Tabs>
   );
 }
+const styles = StyleSheet.create({ center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0F172A' }});
