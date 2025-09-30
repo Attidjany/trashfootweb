@@ -23,7 +23,6 @@ import {
   CheckCircle,
   User
 } from 'lucide-react-native';
-import { useGameStore } from '@/hooks/use-game-store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AchievementBadges } from '@/components/AchievementBadges';
@@ -36,16 +35,6 @@ export default function GroupDetailsScreen() {
   const insets = useSafeAreaInsets();
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
   
-  const { 
-    groups, 
-    currentUser, 
-    createCompetition, 
-    generateMatches,
-    updateMatchResult,
-    shareYoutubeLink,
-    deleteMatch,
-    correctMatchScore
-  } = useGameStore();
   
   const [activeTab, setActiveTab] = useState<'overview' | 'matches' | 'members'>('overview');
   const [createCompModal, setCreateCompModal] = useState(false);
