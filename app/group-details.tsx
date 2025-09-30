@@ -27,6 +27,9 @@ import { useGameStore } from '@/hooks/use-game-store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AchievementBadges } from '@/components/AchievementBadges';
+import { amIMember, requestJoinByGroupId, listJoinRequests, approveJoin, rejectJoin } from '@/lib/groups';
+import { supabase } from '@/lib/supabase';
+
 
 export default function GroupDetailsScreen() {
   const router = useRouter();
@@ -63,6 +66,9 @@ export default function GroupDetailsScreen() {
   const [selectedMatch, setSelectedMatch] = useState<any>(null);
   const [newHomeScore, setNewHomeScore] = useState('');
   const [newAwayScore, setNewAwayScore] = useState('');
+const [me, setMe] = useState<{ isMember: boolean; isAdmin: boolean; isOwner: boolean; status?: 'approved'|'pending' } | null>(null);
+const [requests, setRequests] = useState<{ user_id: string; name: string | null; requested_at: string }[]>([]);
+const [loadingMembership, setLoadingMembership] = useState(true);
 
   const group = groups.find(g => g.id === groupId);
   const isAdmin = (group?.adminIds && group.adminIds.includes(currentUser?.id || '')) || 
@@ -89,13 +95,62 @@ export default function GroupDetailsScreen() {
   const allMatches = group.competitions.flatMap(c => 
     c.matches.map(m => ({ ...m, competitionName: c.name, competitionType: c.type }))
   );
+useEffect(() => {
+  let mounted = true;
+  (async () => {
+    try {
+      if (!groupId || typeof groupId !== 'string') return;
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) { 
+        if (mounted) {
+          setMe({ isMember: false, isAdmin: false, isOwner: false });
+          setRequests([]);
+        }
+        return;
+      }
+
+      const mine = await amIMember(groupId);
+      if (mounted) setMe(mine);
+
+      // If admin/owner, load pending requests
+      if (mine.isAdmin || mine.isOwner) {
+        try {
+          const reqs = await listJoinRequests(groupId);
+          if (mounted) setRequests(reqs);
+        } catch {
+          if (mounted) setRequests([]);
+        }
+      } else {
+        if (mounted) setRequests([]);
+      }
+    } finally {
+      if (mounted) setLoadingMembership(false);
+    }
+  })();
+  return () => { mounted = false; };
+}, [groupId]);
+
+const onRequestJoin = async () => {
+  if (!groupId || typeof groupId !== 'string') return;
+  try {
+    await requestJoinByGroupId(groupId);
+    alert('Your join request was sent to the admins.');
+    // Refresh membership status
+    const mine = await amIMember(groupId);
+    setMe(mine);
+  } catch (e: any) {
+    alert(e?.message ?? 'Could not request to join');
+  }
+};
 
   const handleCreateCompetition = () => {
     if (!compName.trim()) {
       console.log('Error: Please enter a competition name');
       return;
     }
-    
+    const [requests, setRequests] = useState<{ user_id: string; username: string | null; requested_at: string }[]>([]);
+
     // Validation based on competition type
     if (compType === 'friendly') {
       if (selectedParticipants.length !== 2) {
@@ -169,6 +224,62 @@ export default function GroupDetailsScreen() {
   const renderOverview = () => (
     <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
       {/* Group Header */}
+      {!loadingMembership && me && !me.isMember && me.status !== 'pending' && (
+  <TouchableOpacity style={styles.primaryButton} onPress={onRequestJoin}>
+    <Text style={styles.primaryButtonText}>Request to Join</Text>
+  </TouchableOpacity>
+)}
+
+{!loadingMembership && me?.status === 'pending' && (
+  <Text style={{ color: '#F59E0B', marginTop: 8 }}>
+    Your join request is pending approval
+  </Text>
+)}
+{(me?.isAdmin || me?.isOwner) && (
+  <View style={styles.section}>
+    <Text style={styles.sectionTitle}>Join Requests</Text>
+
+    {requests.length === 0 ? (
+      <Text style={styles.emptySubtext}>No pending requests</Text>
+    ) : (
+      requests.map(r => (
+        <View key={r.user_id} style={[styles.actionCard, { alignItems: 'center' }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.actionTitle}>{r.username ?? r.user_id.slice(0, 8)}</Text>
+            <Text style={styles.actionSubtitle}>
+              requested {new Date(r.requested_at).toLocaleString()}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.primaryButton, { paddingVertical: 8, marginRight: 8 }]}
+            onPress={async () => {
+              if (!groupId || typeof groupId !== 'string') return;
+              await approveJoin(groupId, r.user_id);
+              const next = await listJoinRequests(groupId);
+              setRequests(next);
+            }}
+          >
+            <Text style={styles.primaryButtonText}>Approve</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.primaryButton, { backgroundColor: '#EF4444', paddingVertical: 8 }]}
+            onPress={async () => {
+              if (!groupId || typeof groupId !== 'string') return;
+              await rejectJoin(groupId, r.user_id);
+              const next = await listJoinRequests(groupId);
+              setRequests(next);
+            }}
+          >
+            <Text style={styles.primaryButtonText}>Reject</Text>
+          </TouchableOpacity>
+        </View>
+      ))
+    )}
+  </View>
+)}
+
       <LinearGradient
         colors={['#0EA5E9', '#8B5CF6']}
         start={{ x: 0, y: 0 }}
@@ -222,6 +333,47 @@ export default function GroupDetailsScreen() {
           </TouchableOpacity>
         </View>
       )}
+{(me?.isAdmin || me?.isOwner) && (
+  <View style={styles.section}>
+    <Text style={styles.sectionTitle}>Join Requests</Text>
+    {requests.length === 0 ? (
+      <Text style={styles.emptySubtext}>No pending requests</Text>
+    ) : (
+      requests.map(r => (
+        <View key={r.user_id} style={[styles.actionCard, { alignItems: 'center' }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.actionTitle}>{r.name ?? r.user_id.slice(0,8)}</Text>
+            <Text style={styles.actionSubtitle}>
+              requested {new Date(r.requested_at).toLocaleString()}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.primaryButton, { paddingVertical: 8, marginRight: 8 }]}
+            onPress={async () => {
+              if (!groupId || typeof groupId !== 'string') return;
+              await approveJoin(groupId, r.user_id);
+              const next = await listJoinRequests(groupId);
+              setRequests(next);
+            }}
+          >
+            <Text style={styles.primaryButtonText}>Approve</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.primaryButton, { backgroundColor: '#EF4444', paddingVertical: 8 }]}
+            onPress={async () => {
+              if (!groupId || typeof groupId !== 'string') return;
+              await rejectJoin(groupId, r.user_id);
+              const next = await listJoinRequests(groupId);
+              setRequests(next);
+            }}
+          >
+            <Text style={styles.primaryButtonText}>Reject</Text>
+          </TouchableOpacity>
+        </View>
+      ))
+    )}
+  </View>
+)}
 
       {/* Recent Activity */}
       <View style={styles.section}>

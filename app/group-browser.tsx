@@ -1,27 +1,23 @@
-// app/group-browser.tsx
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/hooks/use-auth';
 
 type Group = { id: string; name: string; code?: string | null; created_at?: string | null };
 
 export default function GroupBrowser() {
   const router = useRouter();
-  const { userId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [hasSession, setHasSession] = useState<boolean>(false);
 
   useEffect(() => {
     (async () => {
       try {
-        if (!userId) {
-          Alert.alert('Sign in required', 'Please log in to browse groups.');
-          router.replace('/auth');
-          return;
-        }
-        // keep the select minimal to avoid column mismatches
+        const { data: { session } } = await supabase.auth.getSession();
+        setHasSession(!!session?.user);
+        if (!session?.user) { setLoading(false); return; }
+
         const { data, error } = await supabase
           .from('groups')
           .select('id,name,code,created_at')
@@ -35,13 +31,25 @@ export default function GroupBrowser() {
         setLoading(false);
       }
     })();
-  }, [userId, router]);
+  }, []);
 
   if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator />
         <Text style={styles.muted}>Loading groups…</Text>
+      </View>
+    );
+  }
+
+  if (!hasSession) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.title}>Browse Groups</Text>
+        <Text style={styles.muted}>Please log in to view groups.</Text>
+        <TouchableOpacity style={styles.button} onPress={() => router.replace('/auth')}>
+          <Text style={styles.buttonText}>Go to Login</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -61,17 +69,15 @@ export default function GroupBrowser() {
             ) : null}
             <View style={styles.row}>
               <TouchableOpacity
-                style={styles.button}
-                onPress={() => router.push(`/group-details?groupId=${item.id}`)}
-              >
-                <Text style={styles.buttonText}>View</Text>
-              </TouchableOpacity>
+  style={styles.viewButton}
+  onPress={() => router.push(`/group-details?groupId=${group.id}`)}
+>
+  <Text style={styles.viewButtonText}>View</Text>
+</TouchableOpacity>
             </View>
           </View>
         )}
-        ListEmptyComponent={
-          <View style={styles.center}><Text style={styles.muted}>No groups yet</Text></View>
-        }
+        ListEmptyComponent={<View style={styles.center}><Text style={styles.muted}>No groups yet</Text></View>}
       />
     </View>
   );
