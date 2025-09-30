@@ -23,7 +23,6 @@ import {
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AchievementBadges } from '@/components/AchievementBadges';
-import { useGameStore } from '@/hooks/use-game-store';
 import { supabase } from '@/lib/supabase';
 import { createGroupSupabase, requestJoinByCode } from '@/lib/groups';
 import { getMyGroups } from '@/lib/groups';
@@ -53,14 +52,6 @@ export default function ProfileScreen() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // You can still use your store for stats/group cards (it’s local/dummy for now)
-  const {
-    currentUser,
-    groups,
-    activeGroupId,
-    setActiveGroupId,
-    logout, // your existing store logout
-  } = useGameStore();
 
   const [createGroupModal, setCreateGroupModal] = useState(false);
   const [joinGroupModal, setJoinGroupModal] = useState(false);
