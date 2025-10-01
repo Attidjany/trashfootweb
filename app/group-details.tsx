@@ -1,7 +1,18 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { ChevronLeft, UserPlus, ThumbsUp, X, LogOut } from "lucide-react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  DeviceEventEmitter,
+} from "react-native";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
+import { ChevronLeft, UserPlus, ThumbsUp, X, LogOut, CheckCircle } from "lucide-react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "@/lib/supabase";
 import {
   getGroupMembers,
@@ -13,6 +24,8 @@ import {
   type Group,
 } from "@/lib/groups";
 
+const ACTIVE_GROUP_KEY = "active_group_id";
+
 export default function GroupDetails() {
   const router = useRouter();
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
@@ -23,73 +36,106 @@ export default function GroupDetails() {
   >([]);
   const [pending, setPending] = useState<{ user_id: string; name: string | null; requested_at: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [me, setMe] = useState<{ id: string | null; isOwner: boolean; isMember: boolean }>({
     id: null,
     isOwner: false,
     isMember: false,
   });
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
 
-  // Derived helpers
   const isOwner = me.isOwner;
   const isMember = me.isMember;
+  const isActive = !!(group && activeGroupId === group.id);
 
-  // Load group, my role, members, and (if owner) pending requests
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      if (!groupId) return;
+  // Read active group from AsyncStorage
+  const loadActiveGroup = useCallback(async () => {
+    try {
+      const gid = await AsyncStorage.getItem(ACTIVE_GROUP_KEY);
+      setActiveGroupId(gid);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Load all data for this page
+  const loadData = useCallback(
+    async (gid: string) => {
       try {
         setLoading(true);
 
-        // session / me
+        // session / uid
         const { data: sessionRes } = await supabase.auth.getSession();
         const uid = sessionRes.session?.user?.id ?? null;
 
-        // fetch group (must be member per RLS)
+        // fetch group via secure RPC (ensures user is a member)
         const { data: gRow, error: gErr } = await supabase.rpc("get_group_by_id", {
-  p_group_id: groupId as string,
-});
+          p_group_id: gid,
+        });
         if (gErr) throw gErr;
-        if (!gRow) {
-          if (mounted) setGroup(null);
-          return;
+        setGroup((gRow ?? null) as Group | null);
+
+        // Regardless of membership outcome, get my row (to handle pending status too)
+        let myRow: { role?: "owner" | "admin" | "member"; status?: string | null } | null = null;
+        if (uid) {
+          const { data: meRow } = await supabase
+            .from("group_members")
+            .select("role,status")
+            .eq("group_id", gid)
+            .eq("user_id", uid)
+            .maybeSingle();
+          myRow = (meRow ?? null) as any;
         }
-        if (mounted) setGroup(gRow as Group);
 
-        // members
-        const mm = await getGroupMembers(groupId as string);
-        if (mounted) setMembers(mm);
+        const ownerId = (gRow as any)?.owner_id as string | undefined;
+        const isOwnerNow = !!(uid && ownerId && uid === ownerId);
+        const isMemberNow = !!myRow; // any row present (approved or pending)
+        setMe({ id: uid, isOwner: isOwnerNow, isMember: isMemberNow });
 
-        // my status
-        const amI = mm.find((m) => m.user_id === uid);
-        const isOwnerNow = !!(uid && gRow && uid === gRow.owner_id);
-        const isMemberNow = !!amI && amI.role !== undefined;
-        if (mounted) setMe({ id: uid, isOwner: isOwnerNow, isMember: isMemberNow });
+        // Load members (RLS policy now allows any member to view all)
+        const mm = await getGroupMembers(gid).catch(() => []);
+        setMembers(mm);
 
-        // pending requests (owner only)
+        // Load pending requests (owner only)
         if (isOwnerNow) {
-          const pend = await listJoinRequests(groupId as string).catch(() => []);
-          if (mounted) setPending(pend || []);
+          const pend = await listJoinRequests(gid).catch(() => []);
+          setPending(pend || []);
         } else {
-          if (mounted) setPending([]);
+          setPending([]);
         }
-      } catch (e) {
-        // You can show an alert here if you like
       } finally {
-        if (mounted) setLoading(false);
+        setLoading(false);
       }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [groupId]);
+    },
+    []
+  );
+
+  // Initial + on focus reload
+  useFocusEffect(
+    useCallback(() => {
+      if (groupId) {
+        loadActiveGroup();
+        loadData(groupId as string);
+      }
+    }, [groupId, loadActiveGroup, loadData])
+  );
+
+  // Pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    if (!groupId) return;
+    try {
+      setRefreshing(true);
+      await Promise.all([loadActiveGroup(), loadData(groupId as string)]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [groupId, loadActiveGroup, loadData]);
 
   // OWNER actions
   const handleApprove = async (userId: string) => {
     try {
       if (!group) return;
       await approveJoin(group.id, userId);
-      // refresh pending + members
       const [pend, mm] = await Promise.all([
         listJoinRequests(group.id).catch(() => []),
         getGroupMembers(group.id),
@@ -105,7 +151,6 @@ export default function GroupDetails() {
     try {
       if (!group) return;
       await rejectJoin(group.id, userId);
-      // refresh pending
       const pend = await listJoinRequests(group.id).catch(() => []);
       setPending(pend || []);
     } catch (e: any) {
@@ -119,6 +164,7 @@ export default function GroupDetails() {
       if (!group) return;
       await requestJoinByGroupId(group.id);
       Alert.alert("Request sent", "Your join request has been submitted.");
+      // Optional: refresh pending for owners; for non-members we just show a toast
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Could not send join request");
     }
@@ -128,10 +174,30 @@ export default function GroupDetails() {
   const handleLeave = async () => {
     try {
       if (!group) return;
+      // If it's the active group, unset it first
+      const current = await AsyncStorage.getItem(ACTIVE_GROUP_KEY);
+      if (current && current === group.id) {
+        await AsyncStorage.removeItem(ACTIVE_GROUP_KEY);
+        DeviceEventEmitter.emit("active-group-changed", null);
+      }
       await leaveGroup(group.id);
       router.back();
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Could not leave group");
+    }
+  };
+
+  // Set active group for other tabs
+  const handleSetActive = async () => {
+    try {
+      if (!group) return;
+      await AsyncStorage.setItem(ACTIVE_GROUP_KEY, group.id);
+      setActiveGroupId(group.id);
+      // Broadcast to the rest of the app (tabs listening can react)
+      DeviceEventEmitter.emit("active-group-changed", group.id);
+      Alert.alert("Active group set", `This group is now active.`);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Could not set active group");
     }
   };
 
@@ -149,7 +215,11 @@ export default function GroupDetails() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16 }}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ padding: 16 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+    >
       <TouchableOpacity style={styles.back} onPress={() => router.back()}>
         <ChevronLeft size={20} color="#94A3B8" />
         <Text style={styles.backText}>Back</Text>
@@ -177,6 +247,22 @@ export default function GroupDetails() {
           <View style={styles.card}>
             <Text style={styles.label}>Owner</Text>
             <Text style={styles.value}>{ownerName}</Text>
+          </View>
+
+          {/* Active Group status + action */}
+          <View style={styles.cardRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Active Group</Text>
+              <Text style={styles.value}>{isActive ? "This is your active group" : "Not active"}</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { opacity: isActive ? 0.6 : 1 }]}
+              disabled={isActive}
+              onPress={handleSetActive}
+            >
+              <CheckCircle size={18} color="#fff" />
+              <Text style={styles.primaryText}>{isActive ? "Active" : "Set Active"}</Text>
+            </TouchableOpacity>
           </View>
 
           {/* Members */}
@@ -248,6 +334,7 @@ const styles = StyleSheet.create({
   title: { color: "#fff", fontSize: 20, fontWeight: "700", marginBottom: 8 },
   desc: { color: "#CBD5E1", fontSize: 14, marginBottom: 16 },
   card: { backgroundColor: "#1E293B", padding: 16, borderRadius: 12, marginBottom: 12 },
+  cardRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#1E293B", padding: 16, borderRadius: 12, marginBottom: 12 },
   label: { color: "#94A3B8", fontSize: 12, marginBottom: 6 },
   value: { color: "#fff", fontSize: 16, fontWeight: "600" },
   note: { color: "#94A3B8", fontSize: 14 },
